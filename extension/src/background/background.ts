@@ -154,41 +154,48 @@ chrome.idle.onStateChanged.addListener(async (state) => {
 // ─── Content script message handler ──────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
-  (message: ContentMessage, _sender, sendResponse) => {
+  (message: ContentMessage, sender, sendResponse) => {
     // Handle message asynchronously but return true to keep the channel open
-    handleContentMessage(message).catch(console.error);
+    handleContentMessage(message, sender).catch(console.error);
     sendResponse({ ok: true }); // Fire-and-forget acknowledgement
     return false; // We've called sendResponse synchronously
   }
 );
 
-async function handleContentMessage(msg: ContentMessage): Promise<void> {
+async function handleContentMessage(
+  msg: ContentMessage,
+  sender: chrome.runtime.MessageSender,
+): Promise<void> {
   if (await shouldSkip(msg.url)) return;
+
+  // Content scripts can't know their own tab id, so they send -1. The real tab
+  // id is only available here, on the receiving end, via the message sender.
+  const tabId = sender.tab?.id ?? msg.tabId;
 
   switch (msg.type) {
     case 'CLICK':
       await appendEvent(buildClickEvent({
-        tabId:       msg.tabId,
+        tabId,
         url:         msg.url,
         title:       msg.title,
         clickTarget: msg.clickTarget,
       }));
-      await setLastActivityTimestamp(msg.tabId, Date.now());
+      await setLastActivityTimestamp(tabId, Date.now());
       break;
 
     case 'SCROLL':
       await appendEvent(buildScrollEvent({
-        tabId:     msg.tabId,
+        tabId,
         url:       msg.url,
         title:     msg.title,
         scrollPct: msg.scrollPct,
       }));
-      await setLastActivityTimestamp(msg.tabId, Date.now());
+      await setLastActivityTimestamp(tabId, Date.now());
       break;
 
     case 'FOCUS':
       // Focus events update activity timestamp but don't produce a stored event
-      await setLastActivityTimestamp(msg.tabId, Date.now());
+      await setLastActivityTimestamp(tabId, Date.now());
       break;
   }
 }
