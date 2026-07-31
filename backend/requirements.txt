@@ -1,0 +1,30 @@
+# ── Web framework ──────────────────────────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# ── Validation ─────────────────────────────────────────────────────────────────
+pydantic>=2.0,<3.0
+
+# ── MongoDB async driver ────────────────────────────────────────────────────────
+motor==3.5.1
+pymongo==4.8.0
+
+# ── Async task queue (Phase 3 — FastAPI BackgroundTasks; no Redis needed for MVP)
+# redis and rq are kept here for easy swap-in if throughput demands it later
+redis==5.0.8
+rq==1.16.2
+
+# ── File upload (multipart/form-data) ──────────────────────────────────────────
+python-multipart==0.0.9
+
+# ── Google Gemini Vision SDK ────────────────────────────────────────────────────
+google-generativeai==0.8.3
+
+# ── Perceptual hashing (Phase 4 dedup) ─────────────────────────────────────────
+imagehash==4.3.1
+Pillow==10.4.0
+
+# ── Testing (Phase 7) ──────────────────────────────────────────────────────────
+pytest==8.3.2
+pytest-asyncio==0.23.8
+httpx==0.27.2          # async test client for FastAPI
