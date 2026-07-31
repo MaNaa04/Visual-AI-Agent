@@ -81,7 +81,7 @@ export async function postEventBatch(events: AgentEvent[]): Promise<BatchResult>
     const res = await fetch(`${API_BASE_URL}/api/events/batch`, {
       method: 'POST',
       headers: { ...authHeaders(clientId), 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
+      body: JSON.stringify({ events: batch }),
     });
 
     if (!res.ok) {
