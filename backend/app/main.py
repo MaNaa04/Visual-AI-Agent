@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from .db import connect_to_databases, close_databases
-from .api import screenshots, events
+from .api import screenshots, events, data_management
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ app.add_middleware(
 # Include routers
 app.include_router(screenshots.router)
 app.include_router(events.router)
+app.include_router(data_management.router)
 
 @app.get("/health")
 async def health_check():

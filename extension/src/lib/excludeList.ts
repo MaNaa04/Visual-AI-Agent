@@ -8,7 +8,7 @@
 
 // ─── Default exclusion list (from PRIVACY.md) ─────────────────────────────────
 
-const DEFAULT_EXCLUDED_DOMAINS: readonly string[] = [
+export const DEFAULT_EXCLUDED_DOMAINS: readonly string[] = [
   // Banking & Finance
   'chase.com', 'bankofamerica.com', 'wellsfargo.com', 'citibank.com', 'capitalone.com',
   'usbank.com', 'ally.com', 'discover.com',
@@ -57,7 +57,8 @@ export function isExcluded(url: string, customList: string[]): boolean {
   const path     = parsed.pathname.toLowerCase();
 
   // 1. Domain match — exact or subdomain of excluded list
-  const allDomains = [...DEFAULT_EXCLUDED_DOMAINS, ...customList];
+  const safeCustomList = customList || [];
+  const allDomains = [...DEFAULT_EXCLUDED_DOMAINS, ...safeCustomList];
   if (allDomains.some(d => hostname === d || hostname.endsWith('.' + d))) return true;
 
   // 2. TLD match (e.g. anything.health)

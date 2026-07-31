@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Visual AI Agent",
-  "version": "0.1.0",
-  "description": "Automatically log and describe what you do in your browser.",
-
+  "version": "1.0.0",
+  "description": "Visual AI Agent for browser automation and insights.",
+  "incognito": "not_allowed",
   "permissions": [
     "tabs",
     "activeTab",
