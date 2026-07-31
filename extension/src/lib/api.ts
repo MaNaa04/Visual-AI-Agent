@@ -33,46 +33,54 @@ function authHeaders(clientId: string): Record<string, string> {
 export async function uploadScreenshot(
   blob: Blob,
   eventId: string,
+  attempts = 3
 ): Promise<string | null> {
-  try {
-    const clientId = await getClientId();
-    const form = new FormData();
-    form.append('file', blob, `${eventId}.jpg`);
-    form.append('eventId', eventId);
+  const clientId = await getClientId();
+  const form = new FormData();
+  form.append('file', blob, `${eventId}.jpg`);
+  form.append('eventId', eventId);
 
-    const res = await fetch(`${API_BASE_URL}/api/screenshots/upload`, {
-      method: 'POST',
-      headers: authHeaders(clientId),
-      body: form,
-    });
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/screenshots/upload`, {
+        method: 'POST',
+        headers: authHeaders(clientId),
+        body: form,
+      });
 
-    if (!res.ok) {
-      console.error(`[VAA] Screenshot upload failed: ${res.status}`, await res.text());
-      return null;
+      if (!res.ok) {
+        throw new Error(`Upload failed: ${res.status}`);
+      }
+
+      const json = (await res.json()) as { screenshotRef: string };
+      return json.screenshotRef;
+    } catch (err) {
+      if (i === attempts - 1) {
+        console.error('[VAA] Screenshot upload error (final attempt):', err);
+        return null;
+      }
+      // Short backoff for screenshot retries (blocks popup/capture flow)
+      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
     }
-
-    const json = (await res.json()) as { screenshotRef: string };
-    return json.screenshotRef;
-  } catch (err) {
-    console.error('[VAA] Screenshot upload error:', err);
-    return null;
   }
+  return null;
 }
 
 // ─── Event batch POST ─────────────────────────────────────────────────────────
 
 export interface BatchResult {
   success: boolean;
-  sentCount: number;
+  accepted: number;
+  rejected: number;
 }
 
 /**
  * POST a batch of events to the backend.
  * Sends at most MAX_BATCH_SIZE events per call.
- * Returns { success: true, sentCount: N } on 2xx, { success: false, sentCount: 0 } otherwise.
+ * Returns { success: true, accepted, rejected } on 2xx, { success: false } otherwise.
  */
 export async function postEventBatch(events: AgentEvent[]): Promise<BatchResult> {
-  if (events.length === 0) return { success: true, sentCount: 0 };
+  if (events.length === 0) return { success: true, accepted: 0, rejected: 0 };
 
   const batch = events.slice(0, LIMITS.MAX_BATCH_SIZE);
 
@@ -86,12 +94,13 @@ export async function postEventBatch(events: AgentEvent[]): Promise<BatchResult>
 
     if (!res.ok) {
       console.error(`[VAA] Batch POST failed: ${res.status}`, await res.text());
-      return { success: false, sentCount: 0 };
+      return { success: false, accepted: 0, rejected: 0 };
     }
 
-    return { success: true, sentCount: batch.length };
+    const json = (await res.json()) as { accepted: number, rejected: number };
+    return { success: true, accepted: json.accepted, rejected: json.rejected };
   } catch (err) {
     console.error('[VAA] Batch POST error (backend unreachable?):', err);
-    return { success: false, sentCount: 0 };
+    return { success: false, accepted: 0, rejected: 0 };
   }
 }
