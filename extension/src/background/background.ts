@@ -25,6 +25,7 @@ import {
   getConsecutiveFailures,
   setConsecutiveFailures,
   resetDropTracking,
+  purgeExcludedEvents,
 } from '../lib/storage';
 import { isExcluded } from '../lib/excludeList';
 import {
@@ -35,7 +36,7 @@ import {
   buildScreenshotEvent,
 } from '../lib/eventBuilders';
 import { uploadScreenshot, postEventBatch } from '../lib/api';
-import { ALARMS, TIMING, LIMITS } from '../lib/constants';
+import { ALARMS, TIMING, LIMITS, STORAGE_KEYS } from '../lib/constants';
 import type { ContentMessage, AgentEvent } from '../lib/types';
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -82,6 +83,25 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Exclude-list change listener ─────────────────────────────────────────────
+
+/**
+ * When the user edits the exclude list (from the Options page), immediately
+ * purge any already-buffered events that now match it. Without this, events
+ * captured just before the domain was blocked would still be flushed to the
+ * backend on the next 60s timer — the second half of the exclusion leak.
+ */
+chrome.storage.onChanged.addListener(async (changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (!(STORAGE_KEYS.EXCLUDE_LIST in changes)) return;
+
+  const newList = (changes[STORAGE_KEYS.EXCLUDE_LIST].newValue as string[]) ?? [];
+  const purged = await purgeExcludedEvents(newList);
+  if (purged > 0) {
+    console.log(`[VAA] Exclude list changed — purged ${purged} buffered event(s) immediately.`);
+  }
+});
+
 // ─── Tab / navigation listeners ───────────────────────────────────────────────
 
 /** Fired when the user switches to a different tab. */
@@ -115,8 +135,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 /** Fired on real navigations (including SPA pushState via filter). */
-chrome.webNavigation.onCommitted.addListener(async ({ tabId, url, transitionType }) => {
-  // Ignore subframe navigations, prerender, etc.
+chrome.webNavigation.onCommitted.addListener(async ({ tabId, url, frameId }) => {
+  // CRITICAL: Only act on the top-level frame (frameId === 0).
+  // Sub-frames (reCAPTCHA on google.com, embedded webviews on devvit.net, ad
+  // iframes, etc.) fire onCommitted too. Their URL is NOT the page the user is
+  // visually on, so acting on them (a) creates nav events with the wrong domain
+  // and (b) triggers a visible-tab screenshot that shows the parent page while
+  // being labelled with the sub-frame's (unexcluded) URL — the exact leak that
+  // let "Reddit" events through after reddit.com was excluded.
+  if (frameId !== 0) return;
   if (!url || url === 'about:blank') return;
   if (await shouldSkip(url)) return;
 
@@ -235,6 +262,15 @@ async function maybeCapture(
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!activeTab || activeTab.id !== tabId) return; // Tab is not currently visible
 
+    // CRITICAL: captureVisibleTab screenshots the *visible top-level tab*, not
+    // whatever URL triggered this call. The trigger URL may be a sub-frame
+    // (e.g. a reCAPTCHA on google.com) whose parent page is excluded. Always
+    // re-derive the URL/title from the live tab and re-check the exclude list
+    // against it so the screenshot's metadata matches what is actually on screen.
+    url = activeTab.url ?? url;
+    title = activeTab.title ?? title;
+    if (await shouldSkip(url)) return; // Visible page is excluded — do not capture.
+
     // MVP scope: captures only the ACTIVE/VISIBLE tab via captureVisibleTab.
     // Background tab capture would require the Offscreen Document API — future work.
     const dataUrl: string = await chrome.tabs.captureVisibleTab({
@@ -343,6 +379,11 @@ async function flushBuffer(): Promise<void> {
     return;
   }
   
+  // Defense in depth: strip any buffered events that now match the exclude list
+  // BEFORE they leave the browser. Catches events buffered before a domain was
+  // excluded and any sub-frame leaks that slipped past capture-time checks.
+  await purgeExcludedEvents(await getExcludeList());
+
   const buffer = await getBuffer();
   if (buffer.length === 0) return;
 

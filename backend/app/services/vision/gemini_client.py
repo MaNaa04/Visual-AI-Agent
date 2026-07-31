@@ -1,9 +1,10 @@
 import google.generativeai as genai
 from .base import VisionClient, VisionResult, VISION_PROMPT
 from ...config import config
+import os
 
 class GeminiVisionClient(VisionClient):
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
         if not config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set")
         genai.configure(api_key=config.GEMINI_API_KEY)

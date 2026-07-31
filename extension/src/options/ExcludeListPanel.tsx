@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 export default function ExcludeListPanel() {
   const [patterns, setPatterns] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     chrome.storage.local.get('excludeList').then(({ excludeList }) => {
@@ -19,8 +20,25 @@ export default function ExcludeListPanel() {
       .map(p => p.trim())
       .filter(p => p.length > 0);
     
+    // Snapshot the running purge counter so we can report how many buffered
+    // events this save removed (the background worker purges on this write).
+    const before = (await chrome.storage.local.get('purgedEventsCount'))
+      .purgedEventsCount as number ?? 0;
+
     await chrome.storage.local.set({ excludeList: customList });
-    setTimeout(() => setSaving(false), 500); // UI feedback
+
+    // Give the background storage.onChanged listener a moment to purge.
+    setTimeout(async () => {
+      const after = (await chrome.storage.local.get('purgedEventsCount'))
+        .purgedEventsCount as number ?? 0;
+      const purgedNow = Math.max(0, after - before);
+      setNotice(
+        purgedNow > 0
+          ? `Saved. Purged at least ${purgedNow} already-buffered event(s) matching the new list. Any remaining matches are removed on the next sync.`
+          : 'Saved. Matching buffered events are purged and future capture is now blocked.'
+      );
+      setSaving(false);
+    }, 600);
   };
 
   return (
@@ -50,9 +68,15 @@ export default function ExcludeListPanel() {
           disabled={saving}
           className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition-colors disabled:opacity-50"
         >
-          {saving ? 'Saved!' : 'Save List'}
+          {saving ? 'Saving…' : 'Save List'}
         </button>
       </div>
+
+      {notice && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md text-sm text-emerald-700">
+          🛡️ {notice}
+        </div>
+      )}
     </div>
   );
 }

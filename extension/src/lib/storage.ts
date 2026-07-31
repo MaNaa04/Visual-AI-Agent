@@ -11,6 +11,7 @@
 
 import type { AgentEvent, MonitoringStatus } from './types';
 import { STORAGE_KEYS, LIMITS } from './constants';
+import { isExcluded } from './excludeList';
 
 // ─── Client identity ──────────────────────────────────────────────────────────
 
@@ -119,6 +120,48 @@ export async function getExcludeList(): Promise<string[]> {
 
 export async function setExcludeList(list: string[]): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.EXCLUDE_LIST]: list });
+}
+
+// ─── Exclude-list purge (privacy protection) ──────────────────────────────────
+
+/**
+ * Remove every buffered event whose URL matches the current exclude list.
+ *
+ * This is the safety net for the two exclusion leaks:
+ *   1. Events captured on a sub-frame URL that isn't itself excluded but whose
+ *      visible page is (handled at capture time), and
+ *   2. Events buffered BEFORE the user added a domain to the exclude list.
+ *
+ * Runs at flush time (defense in depth) and immediately whenever the exclude
+ * list changes, so buffered events never leak to the backend once a domain is
+ * blocked. Tracks a running count so the UI can tell the user what was blocked.
+ *
+ * @returns the number of events purged in this call.
+ */
+export async function purgeExcludedEvents(customList: string[]): Promise<number> {
+  const current = await getBuffer();
+  if (current.length === 0) return 0;
+
+  const remaining = current.filter(evt => !isExcluded(evt.url, customList));
+  const purgedCount = current.length - remaining.length;
+  if (purgedCount === 0) return 0;
+
+  await chrome.storage.local.set({ [STORAGE_KEYS.PENDING_EVENTS]: remaining });
+
+  const prev = await chrome.storage.local.get(STORAGE_KEYS.PURGED_EVENTS_COUNT);
+  const newCount = ((prev[STORAGE_KEYS.PURGED_EVENTS_COUNT] as number) || 0) + purgedCount;
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.PURGED_EVENTS_COUNT]: newCount,
+    [STORAGE_KEYS.LAST_PURGE_TIMESTAMP]: new Date().toISOString(),
+  });
+
+  console.warn(`[VAA] Purged ${purgedCount} buffered event(s) matching the exclude list. Total purged: ${newCount}`);
+  return purgedCount;
+}
+
+export async function getPurgedCount(): Promise<number> {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.PURGED_EVENTS_COUNT);
+  return (result[STORAGE_KEYS.PURGED_EVENTS_COUNT] as number) ?? 0;
 }
 
 // ─── Screenshot rate-limiting ─────────────────────────────────────────────────

@@ -15,6 +15,9 @@ export const STORAGE_KEYS = {
   CONSECUTIVE_FAILURES:    'consecutiveFailures',
   DROPPED_EVENTS_COUNT:    'droppedEventsCount',
   FIRST_DROP_TIMESTAMP:    'firstDropTimestamp',
+  // Count of events removed because they matched the exclude list (privacy protection).
+  PURGED_EVENTS_COUNT:     'purgedEventsCount',
+  LAST_PURGE_TIMESTAMP:    'lastPurgeTimestamp',
 } as const;
 
 // ─── Alarm names ───────────────────────────────────────────────────────────────
