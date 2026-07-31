@@ -58,6 +58,9 @@ async def ingest_batch(
         try:
             # Insert all at once to minimize DB roundtrips (written as "pending").
             documents = [event.model_dump() for event in valid_events]
+            for doc in documents:
+                doc["clientId"] = client_id
+            
             await db.events.insert_many(documents)
 
             # Enqueue screenshot events for background processing
