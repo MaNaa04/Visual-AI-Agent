@@ -1,9 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import '../popup/popup.css';
 
-import StatusPanel from './StatusPanel';
-import ExcludeListPanel from './ExcludeListPanel';
-import PrivacyPanel from './PrivacyPanel';
+import StatusPanel from './StatusPanel.tsx';
+import ExcludeListPanel from './ExcludeListPanel.tsx';
+import PrivacyPanel from './PrivacyPanel.tsx';
 
 function Options(): React.JSX.Element {
   const [tab, setTab] = React.useState<'status' | 'excludes' | 'privacy'>('status');

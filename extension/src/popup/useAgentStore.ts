@@ -13,6 +13,7 @@ interface AgentState {
   monitoringStatus: 'active' | 'paused';
   todayEventsCount: number;
   lastSyncTimestamp: string | null;
+  purgedEventsCount: number;
   // Actions
   load: () => Promise<void>;
   toggle: () => Promise<void>;
@@ -23,6 +24,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   monitoringStatus:  'active',
   todayEventsCount:  0,
   lastSyncTimestamp: null,
+  purgedEventsCount: 0,
 
   /** Read all relevant keys from chrome.storage.local on first render. */
   load: async () => {
@@ -32,6 +34,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       STORAGE_KEYS.TODAY_EVENTS_COUNT,
       STORAGE_KEYS.TODAY_DATE,
       STORAGE_KEYS.LAST_SYNC_TIMESTAMP,
+      STORAGE_KEYS.PURGED_EVENTS_COUNT,
     ]);
 
     set({
@@ -40,6 +43,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                            ? (result[STORAGE_KEYS.TODAY_EVENTS_COUNT] ?? 0) as number
                            : 0,
       lastSyncTimestamp: (result[STORAGE_KEYS.LAST_SYNC_TIMESTAMP] ?? null) as string | null,
+      purgedEventsCount: (result[STORAGE_KEYS.PURGED_EVENTS_COUNT] ?? 0) as number,
     });
   },
 
@@ -60,7 +64,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const today = new Date().toISOString().slice(0, 10);
 
     const listener = (changes: Record<string, chrome.storage.StorageChange>) => {
-      const patch: Partial<Pick<AgentState, 'monitoringStatus' | 'todayEventsCount' | 'lastSyncTimestamp'>> = {};
+      const patch: Partial<Pick<AgentState, 'monitoringStatus' | 'todayEventsCount' | 'lastSyncTimestamp' | 'purgedEventsCount'>> = {};
 
       if (STORAGE_KEYS.MONITORING_STATUS in changes) {
         patch.monitoringStatus = changes[STORAGE_KEYS.MONITORING_STATUS].newValue as 'active' | 'paused';
@@ -74,6 +78,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
       if (STORAGE_KEYS.LAST_SYNC_TIMESTAMP in changes) {
         patch.lastSyncTimestamp = changes[STORAGE_KEYS.LAST_SYNC_TIMESTAMP].newValue as string ?? null;
+      }
+      if (STORAGE_KEYS.PURGED_EVENTS_COUNT in changes) {
+        patch.purgedEventsCount = changes[STORAGE_KEYS.PURGED_EVENTS_COUNT].newValue as number ?? 0;
       }
 
       if (Object.keys(patch).length > 0) set(patch);

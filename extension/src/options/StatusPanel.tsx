@@ -13,6 +13,8 @@ export default function StatusPanel() {
   const [todayCount, setTodayCount] = useState(0);
   const [drops, setDrops] = useState(0);
   const [dropTime, setDropTime] = useState<string | null>(null);
+  const [purged, setPurged] = useState(0);
+  const [purgeTime, setPurgeTime] = useState<string | null>(null);
   
   useEffect(() => {
     // Initial load
@@ -23,10 +25,14 @@ export default function StatusPanel() {
       
       const storage = await chrome.storage.local.get([
         STORAGE_KEYS.DROPPED_EVENTS_COUNT,
-        STORAGE_KEYS.FIRST_DROP_TIMESTAMP
+        STORAGE_KEYS.FIRST_DROP_TIMESTAMP,
+        STORAGE_KEYS.PURGED_EVENTS_COUNT,
+        STORAGE_KEYS.LAST_PURGE_TIMESTAMP,
       ]);
       setDrops((storage[STORAGE_KEYS.DROPPED_EVENTS_COUNT] as number) || 0);
       setDropTime((storage[STORAGE_KEYS.FIRST_DROP_TIMESTAMP] as string) || null);
+      setPurged((storage[STORAGE_KEYS.PURGED_EVENTS_COUNT] as number) || 0);
+      setPurgeTime((storage[STORAGE_KEYS.LAST_PURGE_TIMESTAMP] as string) || null);
     };
     
     loadState();
@@ -47,6 +53,12 @@ export default function StatusPanel() {
       }
       if (changes[STORAGE_KEYS.FIRST_DROP_TIMESTAMP] !== undefined) {
         setDropTime((changes[STORAGE_KEYS.FIRST_DROP_TIMESTAMP].newValue as string) || null);
+      }
+      if (changes[STORAGE_KEYS.PURGED_EVENTS_COUNT]) {
+        setPurged((changes[STORAGE_KEYS.PURGED_EVENTS_COUNT].newValue as number) || 0);
+      }
+      if (changes[STORAGE_KEYS.LAST_PURGE_TIMESTAMP] !== undefined) {
+        setPurgeTime((changes[STORAGE_KEYS.LAST_PURGE_TIMESTAMP].newValue as string) || null);
       }
     };
     
@@ -93,6 +105,23 @@ export default function StatusPanel() {
         </div>
       </div>
       
+      {purged > 0 && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-md">
+          <h3 className="font-semibold text-emerald-700 flex items-center gap-2">
+            🛡️ Excluded Activity Blocked
+          </h3>
+          <p className="text-emerald-700 mt-1 text-sm">
+            <strong>{purged}</strong> buffered event(s) were purged before syncing because they
+            matched your exclusion list (default or custom). This data never left your browser.
+          </p>
+          {purgeTime && (
+            <p className="text-emerald-600 text-xs mt-2">
+              Last purge: {new Date(purgeTime).toLocaleString()}
+            </p>
+          )}
+        </div>
+      )}
+
       {drops > 0 && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-md">
           <h3 className="font-semibold text-red-700 flex items-center gap-2">

@@ -4,7 +4,7 @@ from .base import VisionClient, VisionResult, VISION_PROMPT
 from ...config import config
 
 class GroqVisionClient(VisionClient):
-    def __init__(self, model_name: str = "meta-llama/llama-4-scout"):
+    def __init__(self, model_name: str = "qwen/qwen3.6-27b"):
         if not config.GROQ_API_KEY:
             raise ValueError("GROQ_API_KEY is not set")
         self._client = AsyncGroq(api_key=config.GROQ_API_KEY)

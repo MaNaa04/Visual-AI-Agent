@@ -29,7 +29,7 @@ function formatSyncTime(iso: string | null): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 function Popup() {
-  const { monitoringStatus, todayEventsCount, lastSyncTimestamp, load, toggle, subscribeToStorage } =
+  const { monitoringStatus, todayEventsCount, lastSyncTimestamp, purgedEventsCount, load, toggle, subscribeToStorage } =
     useAgentStore();
 
   // Load initial values from storage on mount
@@ -97,6 +97,16 @@ function Popup() {
           <p className="text-xs text-gray-500 uppercase tracking-wide">Last Sync</p>
           <p className="text-xs font-mono text-gray-300">{formatSyncTime(lastSyncTimestamp)}</p>
         </div>
+
+        {/* Excluded activity blocked (only shown when > 0) */}
+        {purgedEventsCount > 0 && (
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500 uppercase tracking-wide">🛡️ Blocked</p>
+            <p className="text-xs font-semibold text-emerald-400 tabular-nums">
+              {purgedEventsCount.toLocaleString()} excluded
+            </p>
+          </div>
+        )}
 
         <div className="h-px bg-gray-800" />
 
