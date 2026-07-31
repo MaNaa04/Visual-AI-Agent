@@ -12,6 +12,9 @@ export const STORAGE_KEYS = {
   TODAY_DATE:              'todayDate',
   LAST_CAPTURE_TIMESTAMPS: 'lastCaptureTimestamps',
   LAST_ACTIVITY_TIMESTAMPS:'lastActivityTimestamps',
+  CONSECUTIVE_FAILURES:    'consecutiveFailures',
+  DROPPED_EVENTS_COUNT:    'droppedEventsCount',
+  FIRST_DROP_TIMESTAMP:    'firstDropTimestamp',
 } as const;
 
 // ─── Alarm names ───────────────────────────────────────────────────────────────
@@ -22,8 +25,8 @@ export const ALARMS = {
 
 // ─── Timing ────────────────────────────────────────────────────────────────────
 export const TIMING = {
-  /** Alarm period for batch flush — chrome.alarms minimum is 1 min in prod, but 0.5 is fine for dev. */
-  FLUSH_INTERVAL_MINUTES: 0.25,            // ~15 seconds
+  /** Alarm period for batch flush — chrome.alarms minimum is 1 min in prod. */
+  FLUSH_INTERVAL_MINUTES: 1,               // 60 seconds
   /** Minimum gap between screenshots on the same tab, regardless of trigger source. */
   MIN_SCREENSHOT_INTERVAL_MS: 5_000,       // 5 s
   /** How often to check if the user has been active long enough to trigger a "sustained" screenshot. */
@@ -42,9 +45,9 @@ export const TIMING = {
 export const LIMITS = {
   /** Maximum events per API batch POST. */
   MAX_BATCH_SIZE: 100,
-  /** If the buffer grows beyond this (backend unreachable for a long time), trim the oldest. */
-  BUFFER_OVERFLOW_TRIM_AT: 300,
-  BUFFER_OVERFLOW_KEEP:    200,
+  /** If the buffer grows beyond this (backend unreachable for a long time), drop the oldest. */
+  BUFFER_OVERFLOW_TRIM_AT: 500,
+  BUFFER_OVERFLOW_KEEP:    499,
   /** Screenshot JPEG size ceiling for the upload endpoint. */
   MAX_SCREENSHOT_BYTES: 200 * 1024,        // 200 KB
   JPEG_QUALITY_NORMAL: 70,

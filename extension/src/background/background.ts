@@ -14,7 +14,7 @@ import {
   getClientId,
   getMonitoringStatus,
   appendEvent,
-  trimBuffer,
+  removeFlushedEvents,
   getBuffer,
   getExcludeList,
   getLastCaptureTimestamps,
@@ -22,6 +22,9 @@ import {
   getLastActivityTimestamps,
   setLastActivityTimestamp,
   setLastSyncTimestamp,
+  getConsecutiveFailures,
+  setConsecutiveFailures,
+  resetDropTracking,
 } from '../lib/storage';
 import { isExcluded } from '../lib/excludeList';
 import {
@@ -37,10 +40,12 @@ import type { ContentMessage, AgentEvent } from '../lib/types';
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+let isFlushing = false;
+
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[VAA] Extension installed/updated — bootstrapping.');
   await getClientId(); // Generates UUID on first install, no-op after
-  await registerAlarms();
+  await ensureAlarm();
   console.log('[VAA] Bootstrap complete.');
 });
 
@@ -48,18 +53,23 @@ chrome.runtime.onStartup.addListener(async () => {
   // Worker woke due to browser start. Re-register alarms (they persist across
   // browser restarts but good to ensure).
   console.log('[VAA] Browser started — ensuring alarms are registered.');
-  await registerAlarms();
+  await ensureAlarm();
 });
 
-async function registerAlarms(): Promise<void> {
-  // chrome.alarms.create is idempotent by name — safe to call on every startup.
-  await chrome.alarms.clearAll();
-  chrome.alarms.create(ALARMS.BATCH_FLUSH, {
-    periodInMinutes: TIMING.FLUSH_INTERVAL_MINUTES,
-  });
-  chrome.alarms.create(ALARMS.SUSTAINED_ACTIVITY, {
-    periodInMinutes: TIMING.SUSTAINED_ACTIVITY_INTERVAL_MINUTES,
-  });
+async function ensureAlarm(): Promise<void> {
+  const flushAlarm = await chrome.alarms.get(ALARMS.BATCH_FLUSH);
+  if (!flushAlarm) {
+    chrome.alarms.create(ALARMS.BATCH_FLUSH, {
+      periodInMinutes: TIMING.FLUSH_INTERVAL_MINUTES,
+    });
+  }
+  
+  const activityAlarm = await chrome.alarms.get(ALARMS.SUSTAINED_ACTIVITY);
+  if (!activityAlarm) {
+    chrome.alarms.create(ALARMS.SUSTAINED_ACTIVITY, {
+      periodInMinutes: TIMING.SUSTAINED_ACTIVITY_INTERVAL_MINUTES,
+    });
+  }
 }
 
 // ─── Alarm handler ────────────────────────────────────────────────────────────
@@ -328,18 +338,73 @@ async function checkSustainedActivity(): Promise<void> {
  * If the backend is unreachable, the buffer is left intact for the next flush.
  */
 async function flushBuffer(): Promise<void> {
+  if (isFlushing) {
+    console.log('[VAA] Flush already in progress — skipping.');
+    return;
+  }
+  
   const buffer = await getBuffer();
   if (buffer.length === 0) return;
 
-  console.log(`[VAA] Flushing ${buffer.length} events...`);
-  const { success, sentCount } = await postEventBatch(buffer);
+  isFlushing = true;
+  try {
+    console.log(`[VAA] Flushing ${buffer.length} events...`);
+    const { success, accepted, rejected } = await postEventBatch(buffer);
+    
+    // We only tried to send up to MAX_BATCH_SIZE (handled inside postEventBatch)
+    // Extract the event IDs of the exact batch that was just attempted
+    const batchAttempted = buffer.slice(0, LIMITS.MAX_BATCH_SIZE);
+    const sentEventIds = batchAttempted.map(e => e.eventId);
 
-  if (success && sentCount > 0) {
-    await trimBuffer(sentCount);
-    await setLastSyncTimestamp(new Date().toISOString());
-    console.log(`[VAA] Flushed ${sentCount} events successfully.`);
-  } else {
-    console.warn('[VAA] Flush failed — buffer retained for next attempt.');
+    let consecutiveFailures = await getConsecutiveFailures();
+
+    if (success && (accepted > 0 || rejected > 0)) {
+      // Remove exactly the events we attempted to send, completely avoiding the race condition
+      // where new events were appended to the buffer while this fetch was hanging.
+      await removeFlushedEvents(sentEventIds);
+      
+      const totalSent = accepted + rejected;
+      await setLastSyncTimestamp(new Date().toISOString());
+      console.log(`[VAA] Flushed ${totalSent} events (Accepted: ${accepted}, Rejected: ${rejected}).`);
+      
+      if (rejected > 0) {
+        console.warn(`[VAA] ${rejected} events were rejected by the backend — check payload shape.`);
+      }
+
+      // Reset backoff & conditionally wipe drop tracking
+      if (consecutiveFailures > 0) {
+        await setConsecutiveFailures(0);
+        
+        // Only wipe the First Drop record if the buffer has truly recovered (is under the overflow cap)
+        const remainingBuffer = await getBuffer();
+        if (remainingBuffer.length < LIMITS.BUFFER_OVERFLOW_TRIM_AT) {
+          await resetDropTracking();
+        }
+        
+        // Restore default alarm interval (1 minute prod limit)
+        chrome.alarms.create(ALARMS.BATCH_FLUSH, {
+          periodInMinutes: TIMING.FLUSH_INTERVAL_MINUTES,
+        });
+      }
+    } else {
+      // Backend unreachable / failed
+      consecutiveFailures = Math.min(consecutiveFailures + 1, 6); // cap at 6 (max backoff)
+      await setConsecutiveFailures(consecutiveFailures);
+      
+      // Dynamic exponential backoff calculation (1m * 2^failures, max 15m)
+      const backoffMinutes = Math.min(
+        (TIMING.FLUSH_INTERVAL_MINUTES * Math.pow(2, consecutiveFailures)),
+        15
+      );
+      
+      chrome.alarms.create(ALARMS.BATCH_FLUSH, {
+        periodInMinutes: backoffMinutes,
+      });
+      
+      console.warn(`[VAA] Flush failed — backing off to ${backoffMinutes}m. Buffer retained.`);
+    }
+  } finally {
+    isFlushing = false;
   }
 }
 

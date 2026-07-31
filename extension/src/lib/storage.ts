@@ -52,8 +52,26 @@ export async function appendEvent(event: AgentEvent): Promise<void> {
 
   if (current.length >= LIMITS.BUFFER_OVERFLOW_TRIM_AT) {
     // Trim oldest — keep the most recent BUFFER_OVERFLOW_KEEP events.
-    current.splice(0, current.length - LIMITS.BUFFER_OVERFLOW_KEEP);
-    console.warn('[VAA] Buffer overflow: trimmed oldest events to prevent unbounded growth.');
+    const droppedCount = current.length - LIMITS.BUFFER_OVERFLOW_KEEP;
+    current.splice(0, droppedCount);
+    
+    // Update drop tracking
+    const storageKeys = [STORAGE_KEYS.DROPPED_EVENTS_COUNT, STORAGE_KEYS.FIRST_DROP_TIMESTAMP];
+    const dropData = await chrome.storage.local.get(storageKeys);
+    
+    const prevCount = (dropData[STORAGE_KEYS.DROPPED_EVENTS_COUNT] as number) || 0;
+    const newCount = prevCount + droppedCount;
+    
+    const updates: Record<string, any> = {
+      [STORAGE_KEYS.DROPPED_EVENTS_COUNT]: newCount
+    };
+    
+    if (!dropData[STORAGE_KEYS.FIRST_DROP_TIMESTAMP]) {
+      updates[STORAGE_KEYS.FIRST_DROP_TIMESTAMP] = new Date().toISOString();
+    }
+    
+    await chrome.storage.local.set(updates);
+    console.warn(`[VAA] Buffer overflow: dropped ${droppedCount} oldest event(s). Total dropped since backend unreachable: ${newCount}`);
   }
 
   current.push(event);
@@ -62,14 +80,34 @@ export async function appendEvent(event: AgentEvent): Promise<void> {
 }
 
 /**
- * Replace the buffer with the remainder after a successful flush.
+ * Remove specific events from the buffer after a successful flush.
  * NEVER called before we receive a 2xx from the backend — that's the core
- * "zero event loss" guarantee.
+ * "zero event loss" guarantee. Filtering by eventId prevents race conditions
+ * where new events arrive while the POST request is in flight.
  */
-export async function trimBuffer(flushedCount: number): Promise<void> {
+export async function removeFlushedEvents(flushedIds: string[]): Promise<void> {
   const current = await getBuffer();
-  const remaining = current.slice(flushedCount);
+  const idSet = new Set(flushedIds);
+  const remaining = current.filter(evt => !idSet.has(evt.eventId));
   await chrome.storage.local.set({ [STORAGE_KEYS.PENDING_EVENTS]: remaining });
+}
+
+// ─── Backoff & Retry State ────────────────────────────────────────────────────
+
+export async function getConsecutiveFailures(): Promise<number> {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.CONSECUTIVE_FAILURES);
+  return (result[STORAGE_KEYS.CONSECUTIVE_FAILURES] as number) ?? 0;
+}
+
+export async function setConsecutiveFailures(count: number): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.CONSECUTIVE_FAILURES]: count });
+}
+
+export async function resetDropTracking(): Promise<void> {
+  await chrome.storage.local.remove([
+    STORAGE_KEYS.DROPPED_EVENTS_COUNT,
+    STORAGE_KEYS.FIRST_DROP_TIMESTAMP
+  ]);
 }
 
 // ─── Exclude list ─────────────────────────────────────────────────────────────
